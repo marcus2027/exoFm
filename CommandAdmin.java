@@ -2530,6 +2530,108 @@ public class CommandAdmin extends AdminUser {
             }
             this.sendMessage("L'objet a ete modifie avec succes.");
             return;
+        } else if (command.equalsIgnoreCase("EDITSTATS")) {
+            int objId = -1;
+            String action = "";
+            try {
+                objId = Integer.parseInt(infos[1]);
+                action = infos[2].toUpperCase();
+            } catch (Exception e) {
+                // ok
+            }
+            if (objId == -1 || action.isEmpty()) {
+                this.sendMessage("Syntaxe: .EDITSTATS <id_objet> ADD/SET <valeur> <stat>");
+                this.sendMessage("Syntaxe: .EDITSTATS <id_objet> SHOW");
+                this.sendMessage("Syntaxe: .EDITSTATS <id_objet> CLEAR");
+                this.sendMessage("Stats disponibles: PA PM VIE VITA SAGE FORC INTE AGIL CHAN INIT CC PO DOMA PODS PROS SOIN PERDOM PDOM INVOC");
+                this.sendMessage("Resistances fix: RFEU RNEU RTER REAU RAIR");
+                this.sendMessage("Resistances %: RPFEU RPNEU RPTER RPEAU RPAIR");
+                return;
+            }
+            GameObject object = World.world.getGameObject(objId);
+            if (object == null) {
+                this.sendMessage("L'objet " + objId + " n'existe pas.");
+                return;
+            }
+            if (action.equals("SHOW")) {
+                StringBuilder sb = new StringBuilder("Stats de l'objet " + objId + " (" + object.getTemplate().getName() + "):\n");
+                for (java.util.Map.Entry<Integer, Integer> entry : object.getStats().getEffects().entrySet()) {
+                    sb.append(getStatName(entry.getKey())).append(" (").append(entry.getKey()).append(") = ").append(entry.getValue()).append("\n");
+                }
+                this.sendMessage(sb.toString());
+                return;
+            } else if (action.equals("CLEAR")) {
+                object.clearStats();
+                ((ObjectData) DatabaseManager.get(ObjectData.class)).update(object);
+                SocketManager.GAME_SEND_UPDATE_ITEM(this.getPlayer(), object);
+                this.sendMessage("Stats de l'objet " + objId + " (" + object.getTemplate().getName() + ") effacees.");
+                return;
+            } else if (action.equals("ADD") || action.equals("SET")) {
+                int value = 0;
+                String statName = "";
+                try {
+                    value = Integer.parseInt(infos[3]);
+                    statName = infos[4].toUpperCase();
+                } catch (Exception e) {
+                    this.sendMessage("Syntaxe: .EDITSTATS <id_objet> " + action + " <valeur> <stat>");
+                    return;
+                }
+                int statId = getStatIdFromName(statName);
+                if (statId == -1) {
+                    this.sendMessage("Stat inconnue: " + statName);
+                    return;
+                }
+                int currentVal = 0;
+                if (object.getStats().getEffects().containsKey(statId)) {
+                    currentVal = object.getStats().getEffects().get(statId);
+                }
+                int newVal = action.equals("ADD") ? currentVal + value : value;
+
+                // Parse the current stats string and rebuild it with the updated stat
+                String currentStatsStr = object.parseStatsStringSansUserObvi();
+                StringBuilder newStatsBuilder = new StringBuilder();
+                boolean statFound = false;
+                if (currentStatsStr != null && !currentStatsStr.isEmpty()) {
+                    String[] statEntries = currentStatsStr.split("\\|");
+                    for (String entry : statEntries) {
+                        if (entry.isEmpty()) continue;
+                        String[] parts = entry.split("#");
+                        if (parts.length >= 2) {
+                            int entryStatId;
+                            try {
+                                entryStatId = Integer.parseInt(parts[0], 16);
+                            } catch (Exception e) {
+                                continue;
+                            }
+                            if (entryStatId == statId) {
+                                statFound = true;
+                                if (newVal != 0) {
+                                    newStatsBuilder.append(Integer.toHexString(statId)).append("#")
+                                            .append(Integer.toHexString(newVal)).append("#0#0#0d0+").append(newVal).append("|");
+                                }
+                            } else {
+                                newStatsBuilder.append(entry).append("|");
+                            }
+                        }
+                    }
+                }
+                if (!statFound && newVal != 0) {
+                    newStatsBuilder.append(Integer.toHexString(statId)).append("#")
+                            .append(Integer.toHexString(newVal)).append("#0#0#0d0+").append(newVal).append("|");
+                }
+                object.clearStats();
+                String newStatsStr = newStatsBuilder.toString();
+                if (!newStatsStr.isEmpty()) {
+                    object.refreshStatsObjet(newStatsStr);
+                }
+                ((ObjectData) DatabaseManager.get(ObjectData.class)).update(object);
+                SocketManager.GAME_SEND_UPDATE_ITEM(this.getPlayer(), object);
+                this.sendMessage("Objet " + objId + " (" + object.getTemplate().getName() + ") modifie: " + getStatName(statId) + " = " + newVal);
+                return;
+            } else {
+                this.sendMessage("Action inconnue: " + action + ". Utilisez ADD, SET, SHOW ou CLEAR.");
+                return;
+            }
         } else if (command.equalsIgnoreCase("ADDCELLPARK")) {
             if (this.getPlayer().getCurMap().getMountPark() == null) {
                 this.sendMessage("Pas d'enclos sur votre map.");
@@ -3124,6 +3226,98 @@ public class CommandAdmin extends AdminUser {
                 return "Pan";
             default:
                 return "Unk";
+        }
+    }
+
+    private static int getStatIdFromName(String name) {
+        switch (name.toUpperCase()) {
+            case "PA":     return 0x6f; // 111
+            case "PM":     return 0x80; // 128
+            case "PO":     return 0x75; // 117
+            case "VIE":    return 0x6e; // 110
+            case "VITA":   return 0x7d; // 125
+            case "SAGE":   return 0x7c; // 124
+            case "FORC":   return 0x76; // 118
+            case "INTE":   return 0x7e; // 126
+            case "AGIL":   return 0x77; // 119
+            case "CHAN":   return 0x7b; // 123
+            case "INIT":   return 0xae; // 174
+            case "CC":     return 0x73; // 115
+            case "DOMA":   return 0x79; // 121
+            case "PODS":   return 0x9e; // 158
+            case "PROS":   return 0xb0; // 176
+            case "SOIN":   return 0xb2; // 178
+            case "PERDOM": return 0x8a; // 138
+            case "PDOM":   return 0x8e; // 142
+            case "INVOC":  return 0xb6; // 182
+            case "EC":     return 0x7a; // 122
+            case "RFEU":   return 0xf0; // 240
+            case "RNEU":   return 0xf1; // 241
+            case "RTER":   return 0xf2; // 242
+            case "REAU":   return 0xf3; // 243
+            case "RAIR":   return 0xf4; // 244
+            case "RPFEU":  return 0xd5; // 213
+            case "RPNEU":  return 0xd6; // 214
+            case "RPTER":  return 0xd2; // 210
+            case "RPEAU":  return 0xd3; // 211
+            case "RPAIR":  return 0xd4; // 212
+            case "ESQPA":  return 0xa0; // 160
+            case "ESQPM":  return 0xa1; // 161
+            case "-PA":    return 0x65; // 101
+            case "-PM":    return 0x7f; // 127
+            case "-FORC":  return 0x9d; // 157
+            case "-INTE":  return 0x9b; // 155
+            case "-AGIL":  return 0x9a; // 154
+            case "-CHAN":  return 0x98; // 152
+            case "-VITA":  return 0x99; // 153
+            case "-SAGE":  return 0x9c; // 156
+            default:       return -1;
+        }
+    }
+
+    private static String getStatName(int id) {
+        switch (id) {
+            case 0x6f: return "+PA";
+            case 0x80: return "+PM";
+            case 0x75: return "+Portee";
+            case 0x6e: return "+Vie";
+            case 0x7d: return "+Vitalite";
+            case 0x7c: return "+Sagesse";
+            case 0x76: return "+Force";
+            case 0x7e: return "+Intelligence";
+            case 0x77: return "+Agilite";
+            case 0x7b: return "+Chance";
+            case 0xae: return "+Initiative";
+            case 0x73: return "+Coups Critiques";
+            case 0x79: return "+Dommages";
+            case 0x9e: return "+Pods";
+            case 0xb0: return "+Prospection";
+            case 0xb2: return "+Soins";
+            case 0x8a: return "+% Dommages";
+            case 0x8e: return "+Dommages Physiques";
+            case 0xb6: return "+Invocations";
+            case 0x7a: return "+Esquive CC";
+            case 0xf0: return "Res. Fix Feu";
+            case 0xf1: return "Res. Fix Neutre";
+            case 0xf2: return "Res. Fix Terre";
+            case 0xf3: return "Res. Fix Eau";
+            case 0xf4: return "Res. Fix Air";
+            case 0xd5: return "Res. % Feu";
+            case 0xd6: return "Res. % Neutre";
+            case 0xd2: return "Res. % Terre";
+            case 0xd3: return "Res. % Eau";
+            case 0xd4: return "Res. % Air";
+            case 0xa0: return "Esquive PA";
+            case 0xa1: return "Esquive PM";
+            case 0x65: return "-PA";
+            case 0x7f: return "-PM";
+            case 0x9d: return "-Force";
+            case 0x9b: return "-Intelligence";
+            case 0x9a: return "-Agilite";
+            case 0x98: return "-Chance";
+            case 0x99: return "-Vitalite";
+            case 0x9c: return "-Sagesse";
+            default:   return "Stat#" + id;
         }
     }
 }
